@@ -18,12 +18,10 @@ export default function Dashboard() {
   const [questionCount, setQuestionCount] = useState(0);
   const [isAnswering, setIsAnswering] = useState(false);
 
-  // Form Fields
-  const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
-  const [dob, setDob] = useState('');
-  const [gender, setGender] = useState('');
-  const [race, setRace] = useState('');
+  // Form Fields mapped strictly to Django fields
+  const [name, setName] = useState('');
+  const [relation, setRelation] = useState('');
+  const [age, setAge] = useState('');
   const [height, setHeight] = useState('');
   const [weight, setWeight] = useState('');
   const [a1c, setA1c] = useState('');
@@ -35,6 +33,10 @@ export default function Dashboard() {
   const [error, setError] = useState('');
 
   useEffect(() => {
+    delete axios.defaults.headers.common['Authorization'];
+    localStorage.removeItem('access_token');
+    localStorage.removeItem('refresh_token');
+
     const storedUser = localStorage.getItem('username');
     setUsername(storedUser || 'Guest User');
     fetchProfiles();
@@ -42,10 +44,7 @@ export default function Dashboard() {
 
   const fetchProfiles = async () => {
     try {
-      const token = localStorage.getItem('access_token');
-      const headers = token ? { Authorization: `Bearer ${token}` } : {};
-      const res = await axios.get('http://127.0.0.1:8000/api/family-profiles/', { headers });
-      
+      const res = await axios.get('http://127.0.0.1:8000/api/family-profiles/');
       const profiles = res.data || [];
       setFamilyMembers(profiles);
       
@@ -86,19 +85,34 @@ export default function Dashboard() {
     alert(`Successfully connected to ${selectedModel}!`);
   };
 
-  const handlePrescriptionScan = async (e) => {
+ const handlePrescriptionScan = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
+    
     setIsScanning(true);
-    setTimeout(() => {
-      const sampleMedicines = [
-        "Paracetamol 650mg, Cetirizine 10mg",
-        "Metformin 500mg (Twice daily), Vitamin D3 1000IU",
-        "Atorvastatin 20mg (Once daily at night), Aspirin 81mg"
-      ];
-      setConditions(sampleMedicines[Math.floor(Math.random() * sampleMedicines.length)]);
+    setError('');
+    setSuccessMessage('');
+
+    const formData = new FormData();
+    formData.append('image', file);
+
+    try {
+      const res = await axios.post('http://127.0.0.1:8000/api/scan-prescription/', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        }
+      });
+      
+      setConditions(res.data.extracted_text);
+      setSuccessMessage("Prescription successfully scanned and parsed!");
+    } catch (err) {
+      console.error("Prescription scan error:", err.response?.data || err);
+      // Display the exact rejection message when an incorrect image is uploaded
+      const errorMsg = err.response?.data?.error || "This is not the correct image uploaded. Please upload a valid doctor's prescription.";
+      setError(errorMsg);
+    } finally {
       setIsScanning(false);
-    }, 500);
+    }
   };
 
   const handleAddMember = async (e) => {
@@ -106,8 +120,8 @@ export default function Dashboard() {
     setError('');
     setSuccessMessage('');
 
-    if (!firstName.trim()) {
-      setError("First name is required.");
+    if (!name.trim()) {
+      setError("Full name is required.");
       return;
     }
 
@@ -116,25 +130,19 @@ export default function Dashboard() {
       return;
     }
 
-    // Maps frontend state keys correctly to Django model fields (first_name)
     const memberData = {
-      first_name: firstName.trim(),
-      last_name: lastName ? lastName.trim() : '',
-      date_of_birth: dob || '',
-      gender: gender || '',
-      race_ethnicity: race || '',
-      height: height || '',
-      weight: weight || '',
-      a1c: a1c || '',
-      blood_pressure: bloodPressure || '',
+      name: name.trim(),
+      relation: relation.trim() || 'Family Member',
+      age: age ? parseInt(age) : null,
+      height: height.trim() || '-',
+      weight: weight.trim() || '-',
+      a1c: a1c.trim() || '-',
+      blood_pressure: bloodPressure.trim() || '-',
       conditions: conditions.trim() || 'None listed'
     };
 
     try {
-      const token = localStorage.getItem('access_token');
-      const headers = token ? { Authorization: `Bearer ${token}` } : {};
-      
-      const response = await axios.post('http://127.0.0.1:8000/api/family-profiles/', memberData, { headers });
+      const response = await axios.post('http://127.0.0.1:8000/api/family-profiles/', memberData);
       const newMember = response.data; 
       const updatedList = [...familyMembers, newMember];
       
@@ -143,14 +151,14 @@ export default function Dashboard() {
       setChatMessages([]);
       setQuestionCount(0);
       setCurrentView('profile-detail');
-      setSuccessMessage("Profile saved successfully!");
+      setSuccessMessage("Profile saved successfully to database!");
 
-      // Clear Form
-      setFirstName(''); setLastName(''); setDob(''); setGender('');
-      setRace(''); setHeight(''); setWeight(''); setA1c(''); setBloodPressure(''); setConditions('');
+      // Clear Form Fields
+      setName(''); setRelation(''); setAge(''); setHeight(''); 
+      setWeight(''); setA1c(''); setBloodPressure(''); setConditions('');
     } catch (err) {
       console.error("Database save error:", err.response?.data || err);
-      setError(JSON.stringify(err.response?.data) || "Failed to save to database. Please check backend.");
+      setError(JSON.stringify(err.response?.data) || "Failed to save to database.");
     }
   };
 
@@ -178,13 +186,10 @@ export default function Dashboard() {
     setIsAnswering(true);
 
     try {
-      const token = localStorage.getItem('access_token');
-      const headers = token ? { Authorization: `Bearer ${token}` } : {};
-
       const res = await axios.post('http://127.0.0.1:8000/api/ai-chat/', {
         member_id: selectedMember?.id,
         question: userQuestion
-      }, { headers });
+      });
       
       setChatMessages([...newMessages, { sender: 'ai', text: res.data.response }]);
     } catch (err) {
@@ -195,9 +200,11 @@ export default function Dashboard() {
     }
   };
 
-  const getInitials = (fname, lname) => {
-    const f = fname ? fname[0].toUpperCase() : '';
-    const l = lname ? lname[0].toUpperCase() : '';
+  const getInitials = (fullname) => {
+    if (!fullname) return 'QF';
+    const parts = fullname.trim().split(' ');
+    const f = parts[0] ? parts[0][0].toUpperCase() : '';
+    const l = parts[1] ? parts[1][0].toUpperCase() : '';
     return f + l || 'QF';
   };
 
@@ -261,10 +268,10 @@ export default function Dashboard() {
                 className={`flex items-center space-x-3 px-3 py-2 rounded-xl cursor-pointer mt-2 border transition ${selectedMember?.id === member.id ? (isDarkMode ? 'bg-gray-800 border-rose-500/50' : 'bg-rose-50 border-rose-200') : (isDarkMode ? 'hover:bg-gray-800/50 border-gray-800' : 'hover:bg-gray-50 border-gray-200')}`}
               >
                 <div className="w-8 h-8 rounded-full bg-rose-600 text-white flex items-center justify-center font-bold text-xs">
-                  {getInitials(member.first_name, member.last_name)}
+                  {getInitials(member.name)}
                 </div>
                 <div className="overflow-hidden">
-                  <div className="text-xs font-semibold truncate">{member.first_name} {member.last_name}</div>
+                  <div className="text-xs font-semibold truncate">{member.name}</div>
                   <div className="text-[10px] text-gray-400">{questionCount} questions asked</div>
                 </div>
               </div>
@@ -329,58 +336,42 @@ export default function Dashboard() {
                 </div>
               ) : (
                 <form onSubmit={handleAddMember} className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className={`block text-xs font-semibold uppercase mb-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>First name *</label>
-                      <input type="text" value={firstName} onChange={(e) => setFirstName(e.target.value)} className={`w-full px-3 py-2 border rounded-lg text-sm ${isDarkMode ? 'bg-gray-800 border-gray-700 text-white' : 'bg-white border-rose-200'}`} required />
-                    </div>
-                    <div>
-                      <label className={`block text-xs font-semibold uppercase mb-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>Last name</label>
-                      <input type="text" value={lastName} onChange={(e) => setLastName(e.target.value)} className={`w-full px-3 py-2 border rounded-lg text-sm ${isDarkMode ? 'bg-gray-800 border-gray-700 text-white' : 'bg-white border-rose-200'}`} />
-                    </div>
+                  <div>
+                    <label className={`block text-xs font-semibold uppercase mb-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>Full name *</label>
+                    <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. John Doe" className={`w-full px-3 py-2 border rounded-lg text-sm ${isDarkMode ? 'bg-gray-800 border-gray-700 text-white' : 'bg-white border-rose-200'}`} required />
                   </div>
 
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className={`block text-xs font-semibold uppercase mb-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>Date of birth</label>
-                      <input type="date" value={dob} onChange={(e) => setDob(e.target.value)} className={`w-full px-3 py-2 border rounded-lg text-sm ${isDarkMode ? 'bg-gray-800 border-gray-700 text-white' : 'bg-white border-rose-200'}`} />
+                      <label className={`block text-xs font-semibold uppercase mb-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>Relation</label>
+                      <input type="text" value={relation} onChange={(e) => setRelation(e.target.value)} placeholder="e.g. Self, Spouse" className={`w-full px-3 py-2 border rounded-lg text-sm ${isDarkMode ? 'bg-gray-800 border-gray-700 text-white' : 'bg-white border-rose-200'}`} />
                     </div>
                     <div>
-                      <label className={`block text-xs font-semibold uppercase mb-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>Gender</label>
-                      <select value={gender} onChange={(e) => setGender(e.target.value)} className={`w-full px-3 py-2 border rounded-lg text-sm ${isDarkMode ? 'bg-gray-800 border-gray-700 text-white' : 'bg-white border-rose-200'}`}>
-                        <option value="">Select</option>
-                        <option value="Male">Male</option>
-                        <option value="Female">Female</option>
-                        <option value="Other">Other</option>
-                      </select>
+                      <label className={`block text-xs font-semibold uppercase mb-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>Age</label>
+                      <input type="number" value={age} onChange={(e) => setAge(e.target.value)} placeholder="e.g. 35" className={`w-full px-3 py-2 border rounded-lg text-sm ${isDarkMode ? 'bg-gray-800 border-gray-700 text-white' : 'bg-white border-rose-200'}`} />
                     </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className={`block text-xs font-semibold uppercase mb-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>Race / ethnicity</label>
-                      <input type="text" value={race} onChange={(e) => setRace(e.target.value)} placeholder="e.g. Asian Indian" className={`w-full px-3 py-2 border rounded-lg text-sm ${isDarkMode ? 'bg-gray-800 border-gray-700 text-white' : 'bg-white border-rose-200'}`} />
-                    </div>
                     <div>
                       <label className={`block text-xs font-semibold uppercase mb-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>Height</label>
                       <input type="text" value={height} onChange={(e) => setHeight(e.target.value)} placeholder="e.g. 5.8ft" className={`w-full px-3 py-2 border rounded-lg text-sm ${isDarkMode ? 'bg-gray-800 border-gray-700 text-white' : 'bg-white border-rose-200'}`} />
                     </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className={`block text-xs font-semibold uppercase mb-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>Weight</label>
                       <input type="text" value={weight} onChange={(e) => setWeight(e.target.value)} placeholder="e.g. 68kg" className={`w-full px-3 py-2 border rounded-lg text-sm ${isDarkMode ? 'bg-gray-800 border-gray-700 text-white' : 'bg-white border-rose-200'}`} />
                     </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className={`block text-xs font-semibold uppercase mb-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>A1C (%)</label>
                       <input type="text" value={a1c} onChange={(e) => setA1c(e.target.value)} placeholder="e.g. 5.6" className={`w-full px-3 py-2 border rounded-lg text-sm ${isDarkMode ? 'bg-gray-800 border-gray-700 text-white' : 'bg-white border-rose-200'}`} />
                     </div>
-                  </div>
-
-                  <div>
-                    <label className={`block text-xs font-semibold uppercase mb-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>Blood pressure</label>
-                    <input type="text" value={bloodPressure} onChange={(e) => setBloodPressure(e.target.value)} placeholder="e.g. 120/80" className={`w-full px-3 py-2 border rounded-lg text-sm ${isDarkMode ? 'bg-gray-800 border-gray-700 text-white' : 'bg-white border-rose-200'}`} />
+                    <div>
+                      <label className={`block text-xs font-semibold uppercase mb-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>Blood pressure</label>
+                      <input type="text" value={bloodPressure} onChange={(e) => setBloodPressure(e.target.value)} placeholder="e.g. 120/80" className={`w-full px-3 py-2 border rounded-lg text-sm ${isDarkMode ? 'bg-gray-800 border-gray-700 text-white' : 'bg-white border-rose-200'}`} />
+                    </div>
                   </div>
 
                   <div>
@@ -405,23 +396,22 @@ export default function Dashboard() {
               <div className={`p-6 rounded-2xl border shadow-lg flex justify-between items-center ${isDarkMode ? 'bg-gray-900 border-gray-800' : 'bg-white border-rose-100'}`}>
                 <div className="flex items-center space-x-4">
                   <div className="w-14 h-14 rounded-full bg-rose-600 text-white flex items-center justify-center font-bold text-lg shadow-md">
-                    {getInitials(selectedMember.first_name, selectedMember.last_name)}
+                    {getInitials(selectedMember.name)}
                   </div>
                   <div>
-                    <h2 className={`text-xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{selectedMember.first_name} {selectedMember.last_name}</h2>
-                    <p className="text-xs text-gray-400">DOB: {selectedMember.date_of_birth} • Gender: {selectedMember.gender}</p>
+                    <h2 className={`text-xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{selectedMember.name}</h2>
+                    <p className="text-xs text-gray-400">Relation: {selectedMember.relation || 'Member'} • Age: {selectedMember.age || 'N/A'}</p>
                   </div>
                 </div>
                 <button onClick={() => handleRemoveMember(selectedMember.id)} className="px-4 py-2 border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 rounded-xl text-xs font-semibold transition">🗑️ Remove</button>
               </div>
 
-              <div className="grid grid-cols-5 gap-4">
+              <div className="grid grid-cols-4 gap-4">
                 {[
                   { label: 'A1C', value: selectedMember.a1c },
                   { label: 'Blood pressure', value: selectedMember.blood_pressure },
                   { label: 'Weight', value: selectedMember.weight },
                   { label: 'Height', value: selectedMember.height },
-                  { label: 'DOB', value: selectedMember.date_of_birth },
                 ].map((stat, idx) => (
                   <div key={idx} className={`p-4 rounded-xl border shadow-md ${isDarkMode ? 'bg-gray-900 border-gray-800' : 'bg-white border-rose-100'}`}>
                     <div className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1">{stat.label}</div>
@@ -466,7 +456,7 @@ export default function Dashboard() {
                 </div>
 
                 <form onSubmit={handleSendMessage} className="flex items-center space-x-2 pt-2">
-                  <input type="text" value={chatInput} onChange={(e) => setChatInput(e.target.value)} placeholder={`Ask a question based on ${selectedMember.first_name}'s records...`} className={`flex-1 px-4 py-3 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-rose-500 ${isDarkMode ? 'bg-gray-800 border-gray-700 text-white' : 'bg-white border-rose-200 text-gray-900'}`} disabled={questionCount >= 100} />
+                  <input type="text" value={chatInput} onChange={(e) => setChatInput(e.target.value)} placeholder={`Ask a health question about ${selectedMember.name}...`} className={`flex-1 px-4 py-3 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-rose-500 ${isDarkMode ? 'bg-gray-800 border-gray-700 text-white' : 'bg-white border-rose-200 text-gray-900'}`} disabled={questionCount >= 100} />
                   <button type="submit" disabled={isAnswering} className="px-5 py-3 bg-rose-600 hover:bg-rose-700 text-white font-semibold text-sm rounded-xl">Send →</button>
                 </form>
               </div>
