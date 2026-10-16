@@ -20,6 +20,7 @@ import PrivacyPolicy from './components/PrivacyPolicy';
 import AboutUs from './components/AboutUs';
 import TermsOfUse from './components/TermsOfUse';
 
+
 function PublicLayout() {
   return (
     <div className="flex flex-col min-h-screen relative">
