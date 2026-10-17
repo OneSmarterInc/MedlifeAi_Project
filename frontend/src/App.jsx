@@ -61,7 +61,8 @@ function AppRoutes() {
       {/* Standalone / Dashboard Pages */}
       <Route path="/register" element={<Register />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
-      <Route path="/reset-password/:uid/:token" element={<ResetPassword />} />
+      {/* <Route path="/reset-password/:uid/:token" element={<ResetPassword />} /> */}
+      <Route path="/reset-password" element={<ResetPassword />} />
       <Route path="/chat" element={<Chat />} />
       <Route path="/dashboard" element={<Dashboard />} /> 
       <Route path="/2fa-setup" element={<TwoFactorSetup />} />

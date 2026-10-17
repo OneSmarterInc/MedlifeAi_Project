@@ -1,102 +1,77 @@
 import React, { useState } from 'react';
 import axios from 'axios';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 
 export default function ResetPassword() {
-  const { uid, token } = useParams();
-  const navigate = useNavigate();
-  
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
+  const [searchParams] = useSearchParams();
+  const uid = searchParams.get('uid');
+  const token = searchParams.get('token');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [message, setMessage] = useState('');
   const [error, setError] = useState('');
-  const [successMessage, setSuccessMessage] = useState('');
-  const [loading, setLoading] = useState(false);
+  const navigate = useNavigate();
 
-  const handleSubmit = async (e) => {
+  const handleReset = async (e) => {
     e.preventDefault();
     setError('');
-    setSuccessMessage('');
-
-    if (password !== confirmPassword) {
-      setError("Passwords do not match.");
+    setMessage('');
+        if (newPassword !== confirm) {
+      setError('Passwords do not match.');
       return;
     }
 
-    setLoading(true);
-
     try {
-      // Ensure backend successfully commits the new password
-      const response = await axios.post(
-        `http://localhost:8000/api/password-reset-confirm/${uid}/${token}/`,
-        { new_password: password }
-      );
-
-      setSuccessMessage(response.data.message || "Password successfully reset! Redirecting to login...");
-      
-      // Give the database sufficient time to persist before redirecting
-      setTimeout(() => {
-        navigate('/login');
-      }, 2500);
+      const res = await axios.post('http://127.0.0.1:8000/api/reset-password-confirm/', {
+        uid,
+        token,
+        new_password: newPassword
+      });
+      setMessage(res.data.message);
+        setTimeout(() => navigate('/login'), 3000);
     } catch (err) {
-      console.error("Password reset error:", err);
-      const errorMsg = err.response?.data?.error || "The reset link is invalid or has expired.";
-      setError(errorMsg);
-      setLoading(false);
+      setError(err.response?.data?.error || 'Failed to reset password.');
     }
   };
 
   return (
-    <div className="flex justify-center items-center min-h-screen bg-gray-900">
-      <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md text-gray-800">
-        <h2 className="text-2xl font-bold text-center mb-1">Reset Password</h2>
-        <p className="text-sm text-gray-500 text-center mb-6">Enter your new secure password below.</p>
+    <div className="min-h-screen flex items-center justify-center bg-gray-950 text-gray-100 p-4">
+      <div className="max-w-md w-full bg-gray-900 border border-gray-800 p-8 rounded-3xl shadow-xl">
+        <h2 className="text-2xl font-bold mb-2 text-center">Reset Password</h2>
+        <p className="text-xs text-gray-400 text-center mb-8">Enter your new password below.</p>
 
-        {error && <p className="text-red-500 text-sm text-center bg-red-50 p-2 rounded-lg mb-4">{error}</p>}
-        {successMessage && <p className="text-green-600 text-sm text-center font-semibold bg-green-50 p-2 rounded-lg mb-4">{successMessage}</p>}
+        {error && <div className="mb-4 p-3 bg-red-950/50 text-red-400 text-xs rounded-xl">{error}</div>}
+        {message && <div className="mb-4 p-3 bg-green-950/50 text-green-400 text-xs rounded-xl">{message} Redirecting to login...</div>}
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleReset} className="space-y-4">
           <div>
-            <label className="block text-xs font-semibold text-gray-600 uppercase mb-2">
-              New Password
-            </label>
+            <label className="block text-xs font-semibold uppercase text-gray-400 mb-1">New Password</label>
             <input 
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-rose-500"
-              required
+              type="password" 
+              value={newPassword} 
+              onChange={(e) => setNewPassword(e.target.value)} 
+              className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-rose-500"
+              required 
             />
           </div>
-
           <div>
-            <label className="block text-xs font-semibold text-gray-600 uppercase mb-2">
-              Confirm New Password
-            </label>
-            <input 
+            <label className="block text-xs font-semibold uppercase text-gray-400 mb-1">Confirm Password</label>
+            <input
               type="password"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              placeholder="••••••••"
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-rose-500"
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+              className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-rose-500"
               required
             />
           </div>
 
           <button 
-            type="submit"
-            disabled={loading}
-            className="w-full py-3 bg-rose-600 hover:bg-rose-700 text-white font-semibold rounded-lg transition duration-200 disabled:opacity-50"
+            type="submit" 
+            className="w-full py-3.5 bg-rose-600 hover:bg-rose-700 text-white font-bold text-sm rounded-xl shadow-lg transition cursor-pointer mt-4"
           >
-            {loading ? "Updating Password..." : "Reset Password →"}
+            Update Password →
           </button>
         </form>
-
-        <div className="text-center mt-4">
-          <a href="/login" className="text-xs text-rose-600 hover:underline">
-            Remembered your password? Sign in →
-          </a>
-        </div>
       </div>
     </div>
   );
