@@ -183,30 +183,51 @@ def reset_password_confirm_view(request):
     )
 
 
-# --- AI CHAT ---
+# --- STRICT HEALTH & PRESCRIPTION-ONLY AI CHAT GUARDRAIL ---
 
 OFF_TOPIC_REPLY = (
-    "I can only help with health and medical questions about this patient, such as "
-    "medicines, symptoms, test results, diet or care. Please ask something related to health."
+    "I can only answer questions related to this patient's health, medical details, "
+    "and attached prescription notes. Please ask something relevant to their medical records."
 )
 
 
 def is_health_question(question, profile, model_choice, api_key):
-    recent = list(profile.chats.order_by('-timestamp')[1:3])[::-1]
-    history = "\n".join(f"{c.sender}: {c.text[:150]}" for c in recent) or "(none)"
+    """Multi-layered strict restriction guardrail."""
+    q_lower = question.lower()
 
+    # --- LAYER 1: Hard Blocklist (Instant Rejection for Non-Medical Topics) ---
+    off_topic_blocklist = [
+        'code', 'java', 'python', 'c++', 'javascript', 'html', 'css', 'factorial', 
+        'capital', 'cricket', 'president', 'movie', 'recipe', 'history', 'math', 
+        'sql', 'programming', 'function', 'france', 'weather', 'song', 'game',
+        'zodiac', 'horoscope', 'joke', 'story', 'lyrics', 'politics'
+    ]
+    if any(word in q_lower.split() for word in off_topic_blocklist):
+        return False
+
+    # --- LAYER 2: Medical Whitelist Fast-Pass ---
+    medical_keywords = [
+        'medicine', 'tablet', 'pill', 'dose', 'ifa', 'calcium', 'pain', 'fever', 
+        'pregnancy', 'lmp', 'edd', 'bp', 'blood pressure', 'uterus', 'labour', 'scan',
+        'report', 'prescription', 'doctor', 'visit', 'symptom', 'diet', 'health', 'condition',
+        'sugar', 'a1c', 'diabetes', 'vitamin', 'paracetamol', 'metformin', 'mg', 'ml'
+    ]
+    if any(kw in q_lower for kw in medical_keywords):
+        return True
+
+    # --- LAYER 3: Strict LLM Classifier with Exact Parsing ---
     prompt = (
-        "You are a filter for a health assistant. Decide if the user's NEW question is about "
-        "health or medicine: symptoms, illness, medicines, doses, side effects, test results, "
-        "diet, fitness, pregnancy, mental health, or the patient's care.\n"
-        "Answer with exactly one word: YES or NO.\n\n"
-        f"Patient record: {(profile.conditions or '')[:300]}\n"
-        f"Recent chat:\n{history}\n\n"
-        f"NEW question: {question} ->"
+        "TASK: Classify if the user question is strictly about human health, medicine, "
+        "symptoms, vitals, or the attached prescription notes.\n"
+        "RULES: Answer with a single word. If it is health-related, answer YES. "
+        "If it is about coding, general knowledge, math, or anything else, answer NO.\n\n"
+        f"Question: {question}\n"
+        "Answer (YES or NO):"
     )
+    
     try:
         if model_choice == 'Gemini':
-            answer = call_gemini(prompt, api_key) if api_key else 'YES'
+            answer = call_gemini(prompt, api_key) if api_key else 'NO'
         else:
             r = requests.post(
                 'http://localhost:11434/api/generate',
@@ -214,16 +235,18 @@ def is_health_question(question, profile, model_choice, api_key):
                     'model': 'qwen:1.8b',
                     'prompt': prompt,
                     'stream': False,
-                    'keep_alive': '10m',
-                    'options': {'num_predict': 3, 'temperature': 0},
+                    'keep_alive': '30m',
+                    'options': {'num_predict': 2, 'temperature': 0},
                 },
-                timeout=60,
+                timeout=10,
             )
-            answer = r.json().get('response', '') if r.status_code == 200 else 'YES'
-        return not answer.strip().upper().startswith('NO')
+            answer = r.json().get('response', '').strip().upper() if r.status_code == 200 else 'NO'
+        
+        # Strict exact match check
+        return answer == 'YES'
     except Exception:
         traceback.print_exc()
-        return True
+        return False  # Fail closed for security
 
 
 @api_view(['GET', 'POST'])
@@ -259,13 +282,15 @@ def ai_chat_view(request):
         f"Patient Name: {profile.name}\n"
         f"Relation: {profile.relation}, Age: {profile.age}\n"
         f"Vitals - Height: {profile.height}, Weight: {profile.weight}, A1C: {profile.a1c}, BP: {profile.blood_pressure}\n"
-        f"Medicines, Prescriptions and Conditions: {profile.conditions}\n"
+        f"Attached Prescription & Clinical Notes: {profile.conditions}\n"
     )
 
     prompt = (
-        "You are MedLife AI, a clinical assistant. Answer only health and medical questions, "
-        "using the patient records below. Do not guess doses. Keep answers short and clear.\n\n"
-        f"--- PATIENT RECORDS ---\n{patient_context}\n--- END ---\n\n"
+        "You are MedLife AI, a strict clinical assistant. Your role is EXCLUSIVELY to answer health "
+        "and medical questions using ONLY the attached prescription notes and patient records provided below. "
+        "Do not answer any general knowledge questions. If the question cannot be answered using the "
+        "provided prescription or patient records, state that the information is not in the prescription notes.\n\n"
+        f"--- ATTACHED PATIENT RECORDS & PRESCRIPTION ---\n{patient_context}\n--- END RECORDS ---\n\n"
         f"User Question: {user_question}"
     )
 
@@ -282,10 +307,14 @@ def ai_chat_view(request):
                     'model': 'qwen:1.8b',
                     'prompt': prompt,
                     'stream': False,
-                    'keep_alive': '10m',
-                    'options': {'num_predict': 300, 'temperature': 0.3},
+                    'keep_alive': '30m',
+                    'options': {
+                        'num_predict': 150,
+                        'temperature': 0.1,
+                        'num_thread': 4
+                    },
                 },
-                timeout=300
+                timeout=60
             )
             if ollama_res.status_code == 200:
                 ai_reply = ollama_res.json().get('response', 'No response generated.')
@@ -298,7 +327,7 @@ def ai_chat_view(request):
     return Response({"response": ai_reply}, status=status.HTTP_200_OK)
 
 
-# --- PRESCRIPTION SCAN & EXPANDED MEDICINE DATABASE ---
+# --- PRESCRIPTION SCAN & MEDICINE DATABASE ---
 
 MEDICINE_DATABASE = [
     "Metformin", "Vitamin D3", "Paracetamol", "Amoxicillin", "Atorvastatin",
@@ -309,7 +338,7 @@ MEDICINE_DATABASE = [
     "Clindamycin", "Metronidazole", "Ondansetron", "Albendazole", "Salbutamol",
     "Budesonide", "Esomeprazole", "Domperidone", "Furosemide", "Spironolactone",
     "Gabapentin", "Pregabalin", "Methylcobalamin", "Folic Acid", "Pantocid",
-    "Pan-D", "Shelcal", "Glycomet", "Januvia", "Trajenta", "Ecosprin"
+    "Pan-D", "Shelcal", "Glycomet", "Januvia", "Trajenta", "Ecosprin", "IFA"
 ]
 
 
@@ -317,7 +346,8 @@ def structure_with_qwen(ocr_text):
     prompt = (
         "Below is OCR text from a doctor's prescription. List each medicine on its own "
         "line as: name | dose | frequency | duration. Use ONLY what is in the text. "
-        "If something is missing or unclear, write (?).\n\n" + ocr_text
+        "If something is missing or unclear, write (?). Do not add medicines or "
+        "information that is not in the text.\n\n" + ocr_text
     )
     try:
         r = requests.post(
@@ -364,7 +394,9 @@ def scan_prescription_view(request):
 
             prompt = (
                 "This is a doctor's prescription. Extract the medicine names with dosage, "
-                "frequency and duration. Return a short plain list, one medicine per line."
+                "frequency and duration, plus any diagnosis or notes. Return a short plain "
+                "list, one medicine per line. If a word is unclear, write it followed by (?) "
+                "instead of guessing."
             )
             extracted_text = call_gemini(prompt, api_key, image_b64=encoded_image)
             return Response({"extracted_text": extracted_text}, status=status.HTTP_200_OK)
@@ -382,7 +414,7 @@ def scan_prescription_view(request):
         # Tesseract OCR
         extracted_text = pytesseract.image_to_string(thresh, config='--psm 6')
 
-        # RapidFuzz Matching against expanded database
+        # RapidFuzz Matching
         matched_medicines = []
         for line in extracted_text.split('\n'):
             for word in line.split():
