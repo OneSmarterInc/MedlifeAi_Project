@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 export default function Login() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const navigate = useNavigate();
 
@@ -19,22 +20,10 @@ export default function Login() {
       localStorage.setItem('access_token', res.data.access);
       localStorage.setItem('username', username);
       navigate('/dashboard');
-           } catch (err) {
-         setError('Invalid username or password.');
-       }
+    } catch (err) {
+      setError('Invalid username or password.');
+    }
   };
-
-  const handleForgotPassword = async () => {
-  const userInput = prompt("Enter your registered username or email address:");
-  if (!userInput) return;
-
-  try {
-    const res = await axios.post('http://127.0.0.1:8000/api/forgot-password/', { email: userInput });
-    alert(res.data.message || "Password reset link sent to your email.");
-  } catch (err) {
-    alert(err.response?.data?.error || "Failed to send reset link.");
-  }
-};
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-950 text-gray-100 p-4">
@@ -60,19 +49,29 @@ export default function Login() {
             <div className="flex justify-between items-center mb-1">
               <label className="block text-xs font-semibold uppercase text-gray-400">Password</label>
               <span 
-                onClick={handleForgotPassword} 
+                onClick={() => navigate('/forgot-password')} 
                 className="text-xs text-rose-500 hover:underline cursor-pointer font-medium"
               >
                 Forgot password?
               </span>
             </div>
-            <input 
-              type="password" 
-              value={password} 
-              onChange={(e) => setPassword(e.target.value)} 
-              className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-rose-500"
-              required 
-            />
+            
+            <div className="relative">
+              <input 
+                type={showPassword ? "text" : "password"} 
+                value={password} 
+                onChange={(e) => setPassword(e.target.value)} 
+                className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-rose-500 pr-12"
+                required 
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-semibold text-gray-400 hover:text-white cursor-pointer"
+              >
+                {showPassword ? "Hide" : "Show"}
+              </button>
+            </div>
           </div>
 
           <button 
@@ -82,6 +81,10 @@ export default function Login() {
             Continue →
           </button>
         </form>
+
+        <div className="text-center mt-6 text-xs text-gray-400">
+          Don't have an account? <span onClick={() => navigate('/register')} className="text-rose-500 hover:underline cursor-pointer font-medium">Sign up</span>
+        </div>
       </div>
     </div>
   );

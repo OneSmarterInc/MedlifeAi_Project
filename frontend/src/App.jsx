@@ -58,10 +58,9 @@ function AppRoutes() {
         <Route path="/terms-of-use" element={<TermsOfUse />} />
       </Route>
 
-      {/* Standalone / Dashboard Pages */}
+      {/* Standalone / Dashboard & Auth Pages */}
       <Route path="/register" element={<Register />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
-      {/* <Route path="/reset-password/:uid/:token" element={<ResetPassword />} /> */}
       <Route path="/reset-password" element={<ResetPassword />} />
       <Route path="/chat" element={<Chat />} />
       <Route path="/dashboard" element={<Dashboard />} /> 
@@ -72,7 +71,7 @@ function AppRoutes() {
   );
 }
 
-function App() {
+export default function App() {
   return (
     <Router>
       <div className="font-sans overflow-x-hidden bg-white text-gray-900 bg-[linear-gradient(to_right,#ef444415_1px,transparent_1px),linear-gradient(to_bottom,#ef444415_1px,transparent_1px)] bg-[size:32px_32px] selection:bg-red-500/30 dark:bg-[#050505] dark:text-white dark:bg-[linear-gradient(to_right,#ffffff08_1px,transparent_1px),linear-gradient(to_bottom,#ffffff08_1px,transparent_1px)]">
@@ -81,5 +80,3 @@ function App() {
     </Router>
   );
 }
-
-export default App;
