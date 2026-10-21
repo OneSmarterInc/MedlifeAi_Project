@@ -104,6 +104,7 @@ function AppRoutes() {
 
         {/* Standalone / Dashboard & Auth Pages */}
         <Route path="/register" element={<Register />} />
+        <Route path="/signup" element={<Register />} /> {/* 🌟 Added /signup alias to prevent white screen */}
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/chat" element={<Chat />} />

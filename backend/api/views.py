@@ -6,6 +6,7 @@ import traceback
 import pytesseract
 import requests
 import cv2
+import google.generativeai as genai
 import numpy as np
 from PIL import Image
 from rapidfuzz import process, fuzz
@@ -42,25 +43,44 @@ if sys.platform == "win32":
 # --- GEMINI HELPER ---
 GEMINI_MODEL = "gemini-3.8-flash"
 
-
 def call_gemini(prompt, api_key, image_b64=None):
-    """Send a text (and optional image) prompt to Google Gemini and return the reply text."""
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
-    parts = [{"text": prompt}]
+    """Send a text (and optional image) prompt to Google Gemini using the official SDK."""
+    genai.configure(api_key=api_key.strip())
+    
+    # 🌟 Use the current active flash model name
+    model = genai.GenerativeModel('gemini-3.8-flash')
+    
     if image_b64:
-        parts.append({"inline_data": {"mime_type": "image/jpeg", "data": image_b64}})
+        image_bytes = base64.b64decode(image_b64)
+        image_part = {
+            'mime_type': 'image/jpeg',
+            'data': image_bytes
+        }
+        response = model.generate_content([prompt, image_part])
+    else:
+        response = model.generate_content(prompt)
+        
+    return response.text.strip()
 
-    res = requests.post(
-        url,
-        headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
-        json={"contents": [{"parts": parts}]},
-        timeout=90,
-    )
-    if res.status_code != 200:
-        raise Exception(f"Gemini error {res.status_code}: {res.text[:300]}")
 
-    data = res.json()
-    return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+# def call_gemini(prompt, api_key, image_b64=None):
+#     """Send a text (and optional image) prompt to Google Gemini and return the reply text."""
+#     url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
+#     parts = [{"text": prompt}]
+#     if image_b64:
+#         parts.append({"inline_data": {"mime_type": "image/jpeg", "data": image_b64}})
+
+#     res = requests.post(
+#         url,
+#         headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
+#         json={"contents": [{"parts": parts}]},
+#         timeout=20,
+#     )
+#     if res.status_code != 200:
+#         raise Exception(f"Gemini error {res.status_code}: {res.text[:300]}")
+
+#     data = res.json()
+#     return data["candidates"][0]["content"]["parts"][0]["text"].strip()
 
 
 class RegisterView(generics.CreateAPIView):
@@ -69,28 +89,73 @@ class RegisterView(generics.CreateAPIView):
     serializer_class = RegisterSerializer
 
 
+# @api_view(['GET', 'POST'])
+# @authentication_classes([])
+# @permission_classes([AllowAny])
+# def family_profile_list_create(request):
+#     if request.method == 'GET':
+#         profiles = FamilyProfile.objects.all()
+#         serializer = FamilyProfileSerializer(profiles, many=True)
+#         return Response(serializer.data)
+
+#     elif request.method == 'POST':
+#         if FamilyProfile.objects.count() >= 4:
+#             return Response(
+#                 {"error": "Maximum limit of 4 family members reached."},
+#                 status=status.HTTP_400_BAD_REQUEST
+#             )
+
+#         serializer = FamilyProfileSerializer(data=request.data)
+#         if serializer.is_valid():
+#             serializer.save(user=None)
+#             return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+#         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
 @api_view(['GET', 'POST'])
 @authentication_classes([])
 @permission_classes([AllowAny])
 def family_profile_list_create(request):
+    # Get username from query params (GET) or request data (POST)
+    username = request.GET.get('username') or request.data.get('username')
+
     if request.method == 'GET':
-        profiles = FamilyProfile.objects.all()
+        if username:
+            # Fetch profiles strictly belonging to this specific user
+            profiles = FamilyProfile.objects.filter(user__username__iexact=username)
+        else:
+            # Fallback if no username is passed
+            profiles = FamilyProfile.objects.all()
+            
         serializer = FamilyProfileSerializer(profiles, many=True)
         return Response(serializer.data)
 
     elif request.method == 'POST':
-        if FamilyProfile.objects.count() >= 4:
+        user_obj = None
+        if username:
+            user_obj = User.objects.filter(username__iexact=username).first()
+            
+        # Count profiles ONLY for this specific user account
+        if user_obj:
+            user_profile_count = FamilyProfile.objects.filter(user=user_obj).count()
+        else:
+            user_profile_count = FamilyProfile.objects.filter(user__isnull=True).count()
+
+        if user_profile_count >= 4:
             return Response(
-                {"error": "Maximum limit of 4 family members reached."},
+                {"error": "Maximum limit of 4 family members reached for this account."},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
         serializer = FamilyProfileSerializer(data=request.data)
         if serializer.is_valid():
-            serializer.save(user=None)
+            # Save and attach the profile to this specific user
+            serializer.save(user=user_obj)
             return Response(serializer.data, status=status.HTTP_201_CREATED)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
 
 
 @api_view(['DELETE'])
@@ -467,9 +532,9 @@ def scan_prescription_view(request):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             img = Image.open(image_file).convert('RGB')
-            img.thumbnail((1024, 1024), Image.Resampling.LANCZOS)
+            img.thumbnail((800, 800), Image.Resampling.LANCZOS)
             buffered = io.BytesIO()
-            img.save(buffered, format="JPEG", quality=85)
+            img.save(buffered, format="JPEG", quality=75)
             encoded_image = base64.b64encode(buffered.getvalue()).decode('utf-8')
 
             prompt = (

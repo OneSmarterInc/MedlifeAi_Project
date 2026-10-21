@@ -73,7 +73,9 @@ export default function Dashboard() {
     try {
       const token = localStorage.getItem('access_token');
       const headers = token ? { Authorization: `Bearer ${token}` } : {};
-      const res = await axios.get('http://127.0.0.1:8000/api/family-profiles/', { headers });
+      
+      const storedUser = localStorage.getItem('username') || '';
+      const res = await axios.get(`http://127.0.0.1:8000/api/family-profiles/?username=${encodeURIComponent(storedUser)}`, { headers });
       
       const profiles = res.data || [];
       setFamilyMembers(profiles);
@@ -165,7 +167,10 @@ export default function Dashboard() {
       return;
     }
 
+    const storedUser = localStorage.getItem('username') || '';
+
     const memberData = {
+      username: storedUser,
       name: `${firstName.trim()} ${lastName ? lastName.trim() : ''}`.trim(),
       relation: 'Family Member',
       age: dob ? new Date().getFullYear() - new Date(dob).getFullYear() : 'N/A',
