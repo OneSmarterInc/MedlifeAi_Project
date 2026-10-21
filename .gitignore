@@ -1,27 +1,9 @@
+
 # Python virtual environments
 .venv/
 venv/
 env/
-
-# Python cache
-__pycache__/
-*.py[cod]
-
-# Secrets
-.env
-.env.*
-!.env.example
-
-# Frontend dependencies
-node_modules/
-dist/
-build/
-
-# Local database
-backend/db.sqlite3
-# Python virtual environments
-.venv/
-venv/
+ocr_env/
 backend/.venv/
 backend/venv/
 
@@ -29,37 +11,21 @@ backend/venv/
 __pycache__/
 *.py[cod]
 
-# Environment secrets
+# Environment secrets and API keys
 .env
 .env.*
 !.env.example
 
-# Local database
-backend/db.sqlite3
-
-# Frontend dependencies and builds
+# Frontend dependencies and build files
 node_modules/
 dist/
 build/
-# Python virtual environments
-.venv/
-venv/
-backend/.venv/
-backend/venv/
-
-# Python cache
-__pycache__/
-*.py[cod]
-
-# Environment secrets
-.env
-.env.*
-!.env.example
 
 # Local database
 backend/db.sqlite3
 
-# Frontend dependencies and builds
-node_modules/
-dist/
-build/
+# Editor and operating system files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
