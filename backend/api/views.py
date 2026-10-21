@@ -994,6 +994,225 @@ def ai_chat_view(request):
 
     ChatMessage.objects.create(profile=profile, sender='user', text=user_question)
 
+    # if not is_health_question(user_question, profile, model_choice, api_key):
+    #     ChatMessage.objects.create(profile=profile, sender='ai', text=OFF_TOPIC_REPLY)
+    #     return Response({"response": OFF_TOPIC_REPLY}, status=status.HTTP_200_OK)
+
+    # patient_context = (
+    #     f"Patient Name: {profile.name}\n"
+    #     f"Relation: {profile.relation}, Age: {profile.age}\n"
+    #     f"Vitals - Height: {profile.height}, Weight: {profile.weight}, A1C: {profile.a1c}, BP: {profile.blood_pressure}\n"
+    #     f"Attached Prescription & Clinical Notes: {profile.conditions}\n"
+    # )
+
+    # prompt = (
+    #     "You are MedLife AI, a strict clinical assistant. Your role is EXCLUSIVELY to answer health "
+    #     "and medical questions using ONLY the attached prescription notes and patient records provided below. "
+    #     "Do not answer any general knowledge questions. If the question cannot be answered using the "
+    #     "provided prescription or patient records, state that the information is not in the prescription notes.\n\n"
+    #     f"--- ATTACHED PATIENT RECORDS & PRESCRIPTION ---\n{patient_context}\n--- END RECORDS ---\n\n"
+    #     f"User Question: {user_question}"
+    # )
+
+    # try:
+    #     if model_choice == 'Gemini':
+    #         if not api_key:
+    #             ai_reply = "[Error]: Please enter your Gemini API key and click Connect."
+    #         else:
+    #             ai_reply = call_gemini(prompt, api_key)
+    #     else:
+    #         ollama_res = requests.post(
+    #             'http://localhost:11434/api/generate',
+    #             json={
+    #                 'model': 'qwen:1.8b',
+    #                 'prompt': prompt,
+    #                 'stream': False,
+    #                 'keep_alive': '30m',
+    #                 'options': {
+    #                     'num_predict': 150,
+    #                     'temperature': 0.1,
+    #                     'num_thread': 4
+    #                 },
+    #             },
+    #             timeout=60
+    #         )
+    #         if ollama_res.status_code == 200:
+    #             ai_reply = ollama_res.json().get('response', 'No response generated.')
+    #         else:
+    #             ai_reply = f"[Error]: Ollama returned status {ollama_res.status_code}"
+    # except Exception as e:
+    #     ai_reply = f"[System Error]: {str(e)}"
+
+    # ChatMessage.objects.create(profile=profile, sender='ai', text=ai_reply)
+    # return Response({"response": ai_reply}, status=status.HTTP_200_OK)
+
+
+def is_health_question(question, profile, model_choice, api_key):
+    """Strict backend guardrail blocking non-medical queries and jailbreaks (optimized for speed)."""
+    q_lower = question.lower()
+
+    # 1. Hard Blocklist (Non-medical topics & prompt injection/jailbreak attempts)
+    off_topic_blocklist = [
+        'code', 'java', 'python', 'c++', 'javascript', 'html', 'css', 'factorial', 
+        'capital', 'cricket', 'president', 'movie', 'recipe', 'history', 'math', 
+        'sql', 'programming', 'function', 'france', 'weather', 'song', 'game',
+        'ignore', 'bypass', 'pretend', 'act as', 'disregard', 'override'
+    ]
+    if any(word in q_lower.split() for word in off_topic_blocklist):
+        return False
+
+    # 2. Medical, Diet & Precaution Whitelist Fast-Pass (Instant return without calling AI)
+    medical_keywords = [
+        'medicine', 'tablet', 'pill', 'dose', 'ifa', 'calcium', 'pain', 'fever', 
+        'pregnancy', 'lmp', 'edd', 'bp', 'blood pressure', 'uterus', 'labour', 'scan',
+        'report', 'prescription', 'doctor', 'visit', 'symptom', 'diet', 'health', 'condition',
+        'sugar', 'a1c', 'diabetes', 'vitamin', 'paracetamol', 'metformin', 'mg', 'ml', 'wellness', 
+        'nutrition', 'food', 'eat', 'avoid', 'fruit', 'vegetable', 'precaution', 'care', 'what should'
+    ]
+    if any(kw in q_lower for kw in medical_keywords):
+        return True
+
+    # 3. LLM Classifier Fallback (Uses Gemini instantly if selected)
+    prompt = (
+        "TASK: Classify if the user question is strictly about human health, medicine, "
+        "symptoms, vitals, nutrition, wellness, diet, or the attached prescription notes.\n"
+        "RULES: If it is health/wellness-related, answer YES. If it is anything else, answer NO.\n\n"
+        f"Question: {question}\n"
+        "Answer (YES or NO):"
+    )
+    try:
+        if model_choice == 'Gemini':
+            if not api_key:
+                return True # Default to allow if key isn't typed yet
+            answer = call_gemini(prompt, api_key)
+            return 'YES' in answer.upper()
+        else:
+            r = requests.post(
+                'http://localhost:11434/api/generate',
+                json={
+                    # 'model': 'qwen:1.8b',
+                    'model': 'qwen2.5:0.5b',
+                    'prompt': prompt,
+                    'stream': False,
+                    'keep_alive': '30m',
+                    'options': {'num_predict': 2, 'temperature': 0},
+                },
+                timeout=5,
+            )
+            answer = r.json().get('response', '').strip().upper() if r.status_code == 200 else 'NO'
+            return 'YES' in answer
+    except Exception:
+        return True # Default to allowing health questions if classifier times out
+
+
+# @api_view(['GET', 'POST'])
+# @authentication_classes([])
+# @permission_classes([AllowAny])
+# def ai_chat_view(request):
+#     member_id = request.data.get('member_id') if request.method == 'POST' else request.GET.get('member_id')
+
+#     try:
+#         profile = FamilyProfile.objects.get(id=member_id)
+#     except FamilyProfile.DoesNotExist:
+#         return Response({"error": "Profile not found."}, status=status.HTTP_404_NOT_FOUND)
+
+#     if request.method == 'GET':
+#         chats = profile.chats.order_by('timestamp')
+#         chat_data = [{"sender": c.sender, "text": c.text, "timestamp": c.timestamp} for c in chats]
+#         return Response({"history": chat_data}, status=status.HTTP_200_OK)
+
+#     user_question = request.data.get('question')
+#     if not user_question:
+#         return Response({"error": "No question provided."}, status=status.HTTP_400_BAD_REQUEST)
+
+#     model_choice = request.data.get('model', 'Ollama')
+#     api_key = request.data.get('api_key', '')
+
+#     ChatMessage.objects.create(profile=profile, sender='user', text=user_question)
+
+#     # Fast check guardrail
+#     if not is_health_question(user_question, profile, model_choice, api_key):
+#         ChatMessage.objects.create(profile=profile, sender='ai', text=OFF_TOPIC_REPLY)
+#         return Response({"response": OFF_TOPIC_REPLY}, status=status.HTTP_200_OK)
+
+#     patient_context = (
+#         f"Patient Name: {profile.name}\n"
+#         f"Relation: {profile.relation}, Age: {profile.age}\n"
+#         f"Vitals - Height: {profile.height}, Weight: {profile.weight}, A1C: {profile.a1c}, BP: {profile.blood_pressure}\n"
+#         f"Attached Prescription & Clinical Notes: {profile.conditions}\n"
+#     )
+
+#     # 🌟 Optimized prompt allowing lifestyle, diet, and precautions advice
+#     prompt = (
+#         "You are MedLife AI, a helpful clinical assistant. Your role is to answer health, "
+#         "diet, nutrition, and medical precaution questions related to the patient's condition and medications. "
+#         "Use the attached prescription notes and patient records for context, and provide safe, general medical guidance "
+#         "for lifestyle and diet when asked. Do not answer non-medical questions.\n\n"
+#         f"--- ATTACHED PATIENT RECORDS & PRESCRIPTION ---\n{patient_context}\n--- END RECORDS ---\n\n"
+#         f"User Question: {user_question}"
+#     )
+
+#     try:
+#         if model_choice == 'Gemini':
+#             if not api_key:
+#                 ai_reply = "[Error]: Please enter your Gemini API key and click Connect."
+#             else:
+#                 ai_reply = call_gemini(prompt, api_key)
+#         else:
+#             ollama_res = requests.post(
+#                 'http://localhost:11434/api/generate',
+#                 json={
+#                     'model': 'qwen:1.8b',
+#                     'prompt': prompt,
+#                     'stream': False,
+#                     'keep_alive': '30m',
+#                     'options': {
+#                         'num_predict': 150,
+#                         'temperature': 0.1,
+#                         'num_thread': 4
+#                     },
+#                 },
+#                 timeout=60
+#             )
+#             if ollama_res.status_code == 200:
+#                 ai_reply = ollama_res.json().get('response', 'No response generated.')
+#             else:
+#                 ai_reply = f"[Error]: Ollama returned status {ollama_res.status_code}"
+#     except Exception as e:
+#         ai_reply = f"[System Error]: {str(e)}"
+
+#     ChatMessage.objects.create(profile=profile, sender='ai', text=ai_reply)
+#     return Response({"response": ai_reply}, status=status.HTTP_200_OK)
+
+
+
+
+@api_view(['GET', 'POST'])
+@authentication_classes([])
+@permission_classes([AllowAny])
+def ai_chat_view(request):
+    member_id = request.data.get('member_id') if request.method == 'POST' else request.GET.get('member_id')
+
+    try:
+        profile = FamilyProfile.objects.get(id=member_id)
+    except FamilyProfile.DoesNotExist:
+        return Response({"error": "Profile not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    if request.method == 'GET':
+        chats = profile.chats.order_by('timestamp')
+        chat_data = [{"sender": c.sender, "text": c.text, "timestamp": c.timestamp} for c in chats]
+        return Response({"history": chat_data}, status=status.HTTP_200_OK)
+
+    user_question = request.data.get('question')
+    if not user_question:
+        return Response({"error": "No question provided."}, status=status.HTTP_400_BAD_REQUEST)
+
+    model_choice = request.data.get('model', 'Ollama')
+    api_key = request.data.get('api_key', '')
+
+    ChatMessage.objects.create(profile=profile, sender='user', text=user_question)
+
+    # Fast check guardrail
     if not is_health_question(user_question, profile, model_choice, api_key):
         ChatMessage.objects.create(profile=profile, sender='ai', text=OFF_TOPIC_REPLY)
         return Response({"response": OFF_TOPIC_REPLY}, status=status.HTTP_200_OK)
@@ -1005,11 +1224,12 @@ def ai_chat_view(request):
         f"Attached Prescription & Clinical Notes: {profile.conditions}\n"
     )
 
+    # 🌟 Optimized prompt allowing lifestyle, diet, and precautions advice
     prompt = (
-        "You are MedLife AI, a strict clinical assistant. Your role is EXCLUSIVELY to answer health "
-        "and medical questions using ONLY the attached prescription notes and patient records provided below. "
-        "Do not answer any general knowledge questions. If the question cannot be answered using the "
-        "provided prescription or patient records, state that the information is not in the prescription notes.\n\n"
+        "You are MedLife AI, a helpful clinical assistant. Your role is to answer health, "
+        "diet, nutrition, and medical precaution questions related to the patient's condition and medications. "
+        "Use the attached prescription notes and patient records for context, and provide safe, general medical guidance "
+        "for lifestyle and diet when asked. Do not answer non-medical questions.\n\n"
         f"--- ATTACHED PATIENT RECORDS & PRESCRIPTION ---\n{patient_context}\n--- END RECORDS ---\n\n"
         f"User Question: {user_question}"
     )
@@ -1024,7 +1244,8 @@ def ai_chat_view(request):
             ollama_res = requests.post(
                 'http://localhost:11434/api/generate',
                 json={
-                    'model': 'qwen:1.8b',
+                    # 'model': 'qwen:1.8b',
+                    'model': 'qwen2.5:0.5b',
                     'prompt': prompt,
                     'stream': False,
                     'keep_alive': '30m',
@@ -1045,6 +1266,10 @@ def ai_chat_view(request):
 
     ChatMessage.objects.create(profile=profile, sender='ai', text=ai_reply)
     return Response({"response": ai_reply}, status=status.HTTP_200_OK)
+
+
+
+
 
 
 # --- PRESCRIPTION SCAN & MEDICINE DATABASE ---
@@ -1073,7 +1298,8 @@ def structure_with_qwen(ocr_text):
         r = requests.post(
             "http://localhost:11434/api/generate",
             json={
-                "model": "qwen:1.8b",
+                # "model": "qwen:1.8b",
+                "model": "qwen2.5:0.5b",
                 "prompt": prompt,
                 "stream": False,
                 "keep_alive": 0,
